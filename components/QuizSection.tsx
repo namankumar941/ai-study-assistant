@@ -625,6 +625,7 @@ function QuizMode({ markdownId, questions, onQuestionsUpdate }: QuizModeProps) {
 
   const [current, setCurrent] = useState<Question[]>(() => restoreOrPickNext(questions));
   const [submittedIds, setSubmittedIds] = useState<Set<string>>(new Set());
+  const [cycleInfo, setCycleInfo] = useState({ shown: getShown().length, total: questions.length });
 
   const allSubmitted = current.length > 0 && current.every((q) => submittedIds.has(q.id));
 
@@ -635,6 +636,7 @@ function QuizMode({ markdownId, questions, onQuestionsUpdate }: QuizModeProps) {
     const next = pickNext(questions);
     setCurrent(next);
     setSubmittedIds(new Set());
+    setCycleInfo({ shown: newShown.length, total: questions.length });
     onQuestionsUpdate();
   }
 
@@ -658,8 +660,7 @@ function QuizMode({ markdownId, questions, onQuestionsUpdate }: QuizModeProps) {
     );
   }
 
-  const shownInCycle = getShown().length;
-  const progress = Math.min(shownInCycle, questions.length);
+  const progress = Math.min(cycleInfo.shown, cycleInfo.total);
 
   return (
     <div className="space-y-6">
