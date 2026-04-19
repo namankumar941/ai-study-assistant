@@ -165,7 +165,7 @@ export default function StudyPage() {
       const autoPromotedIds = Object.keys(parentUpdates).filter(
         (pid) => parentUpdates[pid] && !progress[pid]
       );
-      const idsToGenerate = [sectionId, ...autoPromotedIds];
+      const idsToGenerate = Array.from(new Set([sectionId, ...autoPromotedIds]));
 
       for (const gid of idsToGenerate) {
         const gnode = findNodeInTree(headings, gid);

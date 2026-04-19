@@ -21,7 +21,7 @@ async function callOpenAICompatible(
   const res = await fetch(`${baseUrl}/v1/chat/completions`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ model, messages, temperature: 0.7, max_tokens: 40960 }),
+    body: JSON.stringify({ model, messages, temperature: 0.7, max_tokens: 16384, stream: true }),
   });
 
   if (!res.ok) {
@@ -29,8 +29,29 @@ async function callOpenAICompatible(
     throw new Error(`LLM error (${res.status}): ${err}`);
   }
 
-  const data = await res.json();
-  return stripThinkTags(data.choices[0].message.content);
+  // Stream SSE to avoid undici's 5-minute body timeout on slow thinking models
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let fullContent = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = decoder.decode(value, { stream: true });
+    for (const line of chunk.split("\n")) {
+      if (!line.startsWith("data: ")) continue;
+      const data = line.slice(6).trim();
+      if (data === "[DONE]") break;
+      try {
+        const parsed = JSON.parse(data);
+        fullContent += parsed.choices[0]?.delta?.content ?? "";
+      } catch {
+        // incomplete chunk, skip
+      }
+    }
+  }
+
+  return stripThinkTags(fullContent);
 }
 
 async function callAnthropic(messages: Message[]): Promise<string> {
