@@ -723,15 +723,54 @@ interface Props {
   progress?: Record<string, boolean>;
 }
 
+type FailedJob = { id: string; section_id: string; section_title: string };
+
+function failedJobsKey(markdownId: string) {
+  return `quiz-failed-jobs-${markdownId}`;
+}
+
+function loadPersistedFailedJobs(markdownId: string): FailedJob[] {
+  try {
+    return JSON.parse(localStorage.getItem(failedJobsKey(markdownId)) ?? "[]");
+  } catch {
+    return [];
+  }
+}
+
 export default function QuizSection({ markdownId, view, progress }: Props) {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeJobs, setActiveJobs] = useState<{ id: string; section_title: string }[]>([]);
-  const [failedJobs, setFailedJobs] = useState<{ id: string; section_id: string; section_title: string }[]>([]);
+  const [failedJobs, setFailedJobs] = useState<FailedJob[]>(() => loadPersistedFailedJobs(markdownId));
   const [retryingIds, setRetryingIds] = useState<Set<string>>(new Set());
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const wasRunningRef = useRef(false);
-  const dismissedJobIdsRef = useRef<Set<string>>(new Set());
+  const dismissedJobIdsRef = useRef<Set<string>>(new Set<string>());
+
+  // Keep localStorage in sync with failedJobs state
+  useEffect(() => {
+    localStorage.setItem(failedJobsKey(markdownId), JSON.stringify(failedJobs));
+  }, [failedJobs, markdownId]);
+
+  // Seed dismissedJobIdsRef from any jobs already dismissed before this mount
+  // (tracked separately so polling doesn't re-add dismissed jobs)
+  const dismissedStorageKey = `quiz-dismissed-jobs-${markdownId}`;
+  useEffect(() => {
+    try {
+      const saved: string[] = JSON.parse(localStorage.getItem(dismissedStorageKey) ?? "[]");
+      saved.forEach((id) => dismissedJobIdsRef.current.add(id));
+    } catch { /* ignore */ }
+  }, [dismissedStorageKey]);
+
+  const persistDismissed = useCallback((id: string) => {
+    dismissedJobIdsRef.current.add(id);
+    try {
+      const saved: string[] = JSON.parse(localStorage.getItem(dismissedStorageKey) ?? "[]");
+      if (!saved.includes(id)) {
+        localStorage.setItem(dismissedStorageKey, JSON.stringify(saved.concat(id)));
+      }
+    } catch { /* ignore */ }
+  }, [dismissedStorageKey]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -745,12 +784,12 @@ export default function QuizSection({ markdownId, view, progress }: Props) {
   }, [markdownId]);
 
   const handleDismissFailedJob = useCallback((id: string) => {
-    dismissedJobIdsRef.current.add(id);
+    persistDismissed(id);
     setFailedJobs((prev) => prev.filter((j) => j.id !== id));
-  }, []);
+  }, [persistDismissed]);
 
-  const handleRetryFailedJob = useCallback(async (job: { id: string; section_id: string; section_title: string }) => {
-    dismissedJobIdsRef.current.add(job.id);
+  const handleRetryFailedJob = useCallback(async (job: FailedJob) => {
+    persistDismissed(job.id);
     setFailedJobs((prev) => prev.filter((j) => j.id !== job.id));
     setRetryingIds((prev) => new Set(Array.from(prev).concat(job.section_id)));
     await fetch("/api/quiz/generate", {
@@ -759,7 +798,7 @@ export default function QuizSection({ markdownId, view, progress }: Props) {
       body: JSON.stringify({ markdownId, sectionId: job.section_id }),
     });
     setRetryingIds((prev) => { const next = new Set(prev); next.delete(job.section_id); return next; });
-  }, [markdownId]);
+  }, [markdownId, persistDismissed]);
 
   const checkJobs = useCallback(async () => {
     const res = await fetch(`/api/quiz/jobs/${markdownId}`);

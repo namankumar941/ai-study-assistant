@@ -1,5 +1,5 @@
 <div align="center">
-  <h1>🧠 OptiLearn (or your chosen name)</h1>
+  <h1>🧠 ai-study-assistant</h1>
   <p>An interactive, AI-powered study platform built with Next.js. Transform static notes into an interactive learning experience with dynamic quizzes, voice Q&A, and inline annotations.</p>
 
   [![Next.js](https://img.shields.io/badge/Next.js-14-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
@@ -31,8 +31,8 @@
 
 ### 1. Clone the repository
 ```bash
-git clone https://github.com/your-username/your-repo-name.git
-cd your-repo-name
+git clone https://github.com/namankumar941/ai-study-assistant.git
+cd ai-study-assistant
 ```
 
 ### 2. Install dependencies

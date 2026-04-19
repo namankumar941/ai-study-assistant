@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "StudyMD – Markdown Study App",
+  title: "ai-study-assistant",
   description: "Study markdown files with voice Q&A, progress tracking, and interview prep",
 };
 

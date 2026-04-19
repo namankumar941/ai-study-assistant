@@ -38,7 +38,7 @@ export default function HomePage() {
           <div className="flex items-center gap-3">
             <span className="text-2xl">📖</span>
             <div>
-              <h1 className="text-white font-bold text-xl">StudyMD</h1>
+              <h1 className="text-white font-bold text-xl">ai-study-assistant</h1>
               <p className="text-slate-400 text-xs">Your AI-powered markdown study companion</p>
             </div>
           </div>
