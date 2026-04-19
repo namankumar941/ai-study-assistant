@@ -625,10 +625,6 @@ function QuizMode({ markdownId, questions, onQuestionsUpdate }: QuizModeProps) {
 
   const [current, setCurrent] = useState<Question[]>(() => restoreOrPickNext(questions));
   const [submittedIds, setSubmittedIds] = useState<Set<string>>(new Set());
-  const [cycleInfo, setCycleInfo] = useState(() => {
-    const shown = getShown();
-    return { shown: shown.length, total: questions.length };
-  });
 
   const allSubmitted = current.length > 0 && current.every((q) => submittedIds.has(q.id));
 
@@ -639,7 +635,6 @@ function QuizMode({ markdownId, questions, onQuestionsUpdate }: QuizModeProps) {
     const next = pickNext(questions);
     setCurrent(next);
     setSubmittedIds(new Set());
-    setCycleInfo({ shown: newShown.length >= questions.length ? 0 : newShown.length, total: questions.length });
     onQuestionsUpdate();
   }
 
@@ -723,6 +718,7 @@ interface Props {
   progress?: Record<string, boolean>;
 }
 
+
 type FailedJob = { id: string; section_id: string; section_title: string };
 
 function failedJobsKey(markdownId: string) {
@@ -742,18 +738,14 @@ export default function QuizSection({ markdownId, view, progress }: Props) {
   const [loading, setLoading] = useState(true);
   const [activeJobs, setActiveJobs] = useState<{ id: string; section_title: string }[]>([]);
   const [failedJobs, setFailedJobs] = useState<FailedJob[]>(() => loadPersistedFailedJobs(markdownId));
-  const [retryingIds, setRetryingIds] = useState<Set<string>>(new Set());
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const wasRunningRef = useRef(false);
   const dismissedJobIdsRef = useRef<Set<string>>(new Set<string>());
 
-  // Keep localStorage in sync with failedJobs state
   useEffect(() => {
     localStorage.setItem(failedJobsKey(markdownId), JSON.stringify(failedJobs));
   }, [failedJobs, markdownId]);
 
-  // Seed dismissedJobIdsRef from any jobs already dismissed before this mount
-  // (tracked separately so polling doesn't re-add dismissed jobs)
   const dismissedStorageKey = `quiz-dismissed-jobs-${markdownId}`;
   useEffect(() => {
     try {
@@ -772,6 +764,21 @@ export default function QuizSection({ markdownId, view, progress }: Props) {
     } catch { /* ignore */ }
   }, [dismissedStorageKey]);
 
+  const handleDismissFailedJob = useCallback((id: string) => {
+    persistDismissed(id);
+    setFailedJobs((prev) => prev.filter((j) => j.id !== id));
+  }, [persistDismissed]);
+
+  const handleRetryFailedJob = useCallback(async (job: FailedJob) => {
+    persistDismissed(job.id);
+    setFailedJobs((prev) => prev.filter((j) => j.id !== job.id));
+    await fetch("/api/quiz/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ markdownId, sectionId: job.section_id }),
+    });
+  }, [markdownId, persistDismissed]);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -783,22 +790,6 @@ export default function QuizSection({ markdownId, view, progress }: Props) {
     }
   }, [markdownId]);
 
-  const handleDismissFailedJob = useCallback((id: string) => {
-    persistDismissed(id);
-    setFailedJobs((prev) => prev.filter((j) => j.id !== id));
-  }, [persistDismissed]);
-
-  const handleRetryFailedJob = useCallback(async (job: FailedJob) => {
-    persistDismissed(job.id);
-    setFailedJobs((prev) => prev.filter((j) => j.id !== job.id));
-    setRetryingIds((prev) => new Set(Array.from(prev).concat(job.section_id)));
-    await fetch("/api/quiz/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ markdownId, sectionId: job.section_id }),
-    });
-    setRetryingIds((prev) => { const next = new Set(prev); next.delete(job.section_id); return next; });
-  }, [markdownId, persistDismissed]);
 
   const checkJobs = useCallback(async () => {
     const res = await fetch(`/api/quiz/jobs/${markdownId}`);
@@ -809,13 +800,12 @@ export default function QuizSection({ markdownId, view, progress }: Props) {
 
     setActiveJobs(running);
 
-    // Reload questions whenever we transition from running → finished (done or failed)
     if (wasRunningRef.current && running.length === 0) {
       await load();
       if (failed.length > 0) {
         setFailedJobs((prev) => {
-          const existingIds = new Set(prev.map((j) => j.id));
-          const newFailed = failed.filter((j) => !existingIds.has(j.id));
+          const existingSectionIds = new Set(prev.map((j) => j.section_id));
+          const newFailed = failed.filter((j) => !existingSectionIds.has(j.section_id));
           return [...prev, ...newFailed].slice(0, 5);
         });
       }
@@ -863,7 +853,7 @@ export default function QuizSection({ markdownId, view, progress }: Props) {
   return (
     <div className="space-y-4">
       {/* Active generation banner */}
-      {activeJobs.length > 0 && (
+      {view === "all" && activeJobs.length > 0 && (
         <div className="flex items-center gap-3 bg-indigo-950/60 border border-indigo-700/50 rounded-xl px-4 py-2.5 text-sm text-indigo-300">
           <span className="animate-spin w-3.5 h-3.5 border-2 border-indigo-400 border-t-transparent rounded-full flex-shrink-0" />
           <span>
@@ -876,34 +866,35 @@ export default function QuizSection({ markdownId, view, progress }: Props) {
         </div>
       )}
 
-      {/* Failed generation banners */}
-      {failedJobs.map((job) => (
-        <div key={job.id} className="flex items-start gap-3 bg-red-950/60 border border-red-700/50 rounded-xl px-4 py-3 text-sm text-red-300">
-          <span className="flex-shrink-0 mt-0.5">⚠</span>
-          <span className="flex-1">
-            Question generation failed for{" "}
-            <span className="font-semibold">&quot;{job.section_title}&quot;</span>.
-          </span>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <button
-              onClick={() => handleRetryFailedJob(job)}
-              className="px-2.5 py-1 bg-red-700/50 hover:bg-red-700/80 text-red-200 rounded-lg text-xs font-medium transition-colors"
-            >
-              Retry
-            </button>
-            <button
-              onClick={() => handleDismissFailedJob(job.id)}
-              className="p-1 hover:bg-red-800/50 text-red-400 hover:text-red-200 rounded-md transition-colors"
-              aria-label="Dismiss"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      ))}
 
       {view === "all" ? (
-        <AllQuestions markdownId={markdownId} questions={questions} onQuestionsUpdate={load} />
+        <>
+          {failedJobs.map((job) => (
+            <div key={job.id} className="flex items-start gap-3 bg-red-950/60 border border-red-700/50 rounded-xl px-4 py-3 text-sm text-red-300">
+              <span className="flex-shrink-0 mt-0.5">⚠</span>
+              <span className="flex-1">
+                Question generation failed for{" "}
+                <span className="font-semibold">&quot;{job.section_title}&quot;</span>.
+              </span>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  onClick={() => handleRetryFailedJob(job)}
+                  className="px-2.5 py-1 bg-red-700/50 hover:bg-red-700/80 text-red-200 rounded-lg text-xs font-medium transition-colors"
+                >
+                  Retry
+                </button>
+                <button
+                  onClick={() => handleDismissFailedJob(job.id)}
+                  className="p-1 hover:bg-red-800/50 text-red-400 hover:text-red-200 rounded-md transition-colors"
+                  aria-label="Dismiss"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          ))}
+          <AllQuestions markdownId={markdownId} questions={questions} onQuestionsUpdate={load} />
+        </>
       ) : (
         <QuizMode
           markdownId={markdownId}
