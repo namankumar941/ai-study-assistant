@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-slate-900 text-slate-100;
+}
+
+/* Prose overrides for dark theme */
+.prose {
+  --tw-prose-body: theme('colors.slate.300');
+  --tw-prose-headings: theme('colors.white');
+  --tw-prose-links: theme('colors.indigo.400');
+  --tw-prose-bold: theme('colors.slate.100');
+  --tw-prose-quotes: theme('colors.slate.400');
+  --tw-prose-code: theme('colors.indigo.300');
+  --tw-prose-hr: theme('colors.slate.700');
+  --tw-prose-bullets: theme('colors.slate.500');
+  --tw-prose-counters: theme('colors.slate.500');
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  @apply bg-slate-900;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-600 rounded-full;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-slate-500;
+}
