@@ -72,5 +72,8 @@ try { db.exec("ALTER TABLE comments ADD COLUMN pos_y REAL DEFAULT 120"); } catch
 try { db.exec("ALTER TABLE quiz_questions ADD COLUMN difficulty TEXT DEFAULT 'medium'"); } catch { /* already exists */ }
 try { db.exec("ALTER TABLE quiz_questions ADD COLUMN needs_revisit INTEGER DEFAULT 0"); } catch { /* already exists */ }
 try { db.exec("ALTER TABLE quiz_questions ADD COLUMN last_score INTEGER"); } catch { /* already exists */ }
+// Migrate markdowns for AI generation
+try { db.exec("ALTER TABLE markdowns ADD COLUMN status TEXT DEFAULT 'ready'"); } catch { /* already exists */ }
+try { db.exec("ALTER TABLE markdowns ADD COLUMN generation_plan TEXT"); } catch { /* already exists */ }
 
 export default db;

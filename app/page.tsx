@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import FileUpload from "@/components/FileUpload";
+import StudyGenerator from "@/components/StudyGenerator";
 
 interface MarkdownFile {
   id: string;
@@ -9,6 +10,7 @@ interface MarkdownFile {
   created_at: string;
   totalSections: number;
   completedSections: number;
+  status: string;
 }
 
 export default function HomePage() {
@@ -50,6 +52,11 @@ export default function HomePage() {
       </header>
 
       <main className="flex-1 max-w-5xl mx-auto w-full px-6 py-10 space-y-10">
+        {/* AI Generate */}
+        <section>
+          <StudyGenerator />
+        </section>
+
         {/* Upload */}
         <section>
           <h2 className="text-white font-semibold text-lg mb-4">Upload Markdown File</h2>
@@ -90,7 +97,13 @@ export default function HomePage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-3 mb-2">
                         <h3 className="text-white font-semibold truncate">{file.name}</h3>
-                        {pct === 100 && (
+                        {file.status === "generating" && (
+                          <span className="text-xs bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                            <span className="w-2 h-2 border border-indigo-400 border-t-transparent rounded-full animate-spin" />
+                            Generating
+                          </span>
+                        )}
+                        {pct === 100 && file.status !== "generating" && (
                           <span className="text-xs bg-green-500/20 text-green-400 border border-green-500/30 px-2 py-0.5 rounded-full">
                             Complete
                           </span>

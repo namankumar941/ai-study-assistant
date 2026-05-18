@@ -11,6 +11,17 @@ import QuizSection from "@/components/QuizSection";
 import FloatingCommentCard, { CommentCardData } from "@/components/FloatingCommentCard";
 import FloatingAsk from "@/components/FloatingAsk";
 
+interface GenerationPlan {
+  title: string;
+  summary: string;
+  topics: string[];
+}
+
+interface TopicState {
+  name: string;
+  status: "pending" | "generating" | "done" | "error";
+}
+
 interface DbComment {
   id: string;
   text: string;
@@ -66,8 +77,21 @@ export default function StudyPage() {
   const [activeId, setActiveId] = useState("");
   const [loading, setLoading] = useState(true);
 
+  // Generation streaming state
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [genPlan, setGenPlan] = useState<GenerationPlan | null>(null);
+  const [topicStates, setTopicStates] = useState<TopicState[]>([]);
+  const [streamBuffer, setStreamBuffer] = useState("");
+  const streamRef = useRef<HTMLDivElement>(null);
+  const esRef = useRef<EventSource | null>(null);
+
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(256);
+
+  // Cleanup SSE on unmount
+  useEffect(() => {
+    return () => { esRef.current?.close(); };
+  }, []);
   const isResizing = useRef(false);
 
   const startResize = useCallback((e: React.MouseEvent) => {
@@ -102,14 +126,23 @@ export default function StudyPage() {
       const prog = await progressRes.json();
       const comms: DbComment[] = await commentsRes.json();
 
-      const parsed = extractSections(md.content);
       setName(md.name);
+
+      if (md.status === "generating" && md.generation_plan) {
+        const plan: GenerationPlan = JSON.parse(md.generation_plan);
+        setGenPlan(plan);
+        setIsGenerating(true);
+        setTopicStates(plan.topics.map((t) => ({ name: t, status: "pending" })));
+        setLoading(false);
+        startSSE();
+        return;
+      }
+
+      const parsed = extractSections(md.content);
       setSections(parsed);
       setHeadings(buildHeadingTree(parsed));
       setProgress(prog);
       if (parsed.length > 0) setActiveId(parsed[0].id);
-
-      // Restore saved comments as floating cards
       setCommentCards(
         comms.map((c) => ({
           uid: c.id,
@@ -119,11 +152,73 @@ export default function StudyPage() {
           position: { x: c.pos_x ?? 120, y: c.pos_y ?? 120 },
         }))
       );
-
       setLoading(false);
     }
     load();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  function startSSE(_plan?: GenerationPlan) {
+    if (esRef.current) esRef.current.close();
+    const es = new EventSource(`/api/generate/stream/${id}`);
+    esRef.current = es;
+
+    es.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+
+      if (data.type === "topic_start") {
+        setTopicStates((prev) =>
+          prev.map((t, i) => (i === data.index ? { ...t, status: "generating" } : t))
+        );
+        setStreamBuffer("");
+      }
+
+      if (data.type === "token") {
+        setStreamBuffer((prev) => prev + data.content);
+        // auto-scroll the stream panel
+        requestAnimationFrame(() => {
+          if (streamRef.current) {
+            streamRef.current.scrollTop = streamRef.current.scrollHeight;
+          }
+        });
+      }
+
+      if (data.type === "topic_done") {
+        setTopicStates((prev) =>
+          prev.map((t, i) => (i === data.index ? { ...t, status: "done" } : t))
+        );
+        setStreamBuffer("");
+      }
+
+      if (data.type === "error") {
+        setTopicStates((prev) =>
+          prev.map((t, i) => (i === data.index ? { ...t, status: "error" } : t))
+        );
+      }
+
+      if (data.type === "done") {
+        es.close();
+        esRef.current = null;
+        // reload fully-generated content
+        fetch(`/api/markdowns/${id}`)
+          .then((r) => r.json())
+          .then((md) => {
+            const parsed = extractSections(md.content);
+            setSections(parsed);
+            setHeadings(buildHeadingTree(parsed));
+            if (parsed.length > 0) setActiveId(parsed[0].id);
+            setIsGenerating(false);
+            setGenPlan(null);
+            setStreamBuffer("");
+          });
+      }
+    };
+
+    es.onerror = () => {
+      // SSE auto-reconnects; mark current generating topic as stalled
+    };
+
+  }
 
   const handleNavigate = useCallback((sectionId: string) => {
     setActiveId(sectionId);
@@ -225,6 +320,99 @@ export default function StudyPage() {
         <div className="text-center space-y-3">
           <div className="animate-spin w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full mx-auto" />
           <p className="text-slate-400">Loading…</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Generating view ──────────────────────────────────────────────────────
+  if (isGenerating && genPlan) {
+    const doneCount = topicStates.filter((t) => t.status === "done").length;
+    const currentTopic = topicStates.find((t) => t.status === "generating");
+
+    return (
+      <div className="min-h-screen bg-slate-900 flex flex-col">
+        {/* Header */}
+        <header className="bg-slate-800 border-b border-slate-700 px-6 py-3 flex items-center gap-4 h-14 flex-shrink-0">
+          <Link href="/" className="text-slate-400 hover:text-white text-sm flex-shrink-0">← Home</Link>
+          <div className="h-4 w-px bg-slate-700" />
+          <h1 className="text-white font-semibold truncate flex-1">{name}</h1>
+          <div className="flex items-center gap-2 text-sm text-slate-400 flex-shrink-0">
+            <span className="animate-spin w-3.5 h-3.5 border-2 border-indigo-400 border-t-transparent rounded-full" />
+            Generating {doneCount}/{genPlan.topics.length} topics…
+          </div>
+        </header>
+
+        <div className="flex flex-1 overflow-hidden">
+          {/* Left: topic checklist */}
+          <aside className="w-64 flex-shrink-0 border-r border-slate-700 bg-slate-800 overflow-y-auto p-4 space-y-1">
+            <p className="text-slate-500 text-xs font-medium uppercase tracking-wide mb-3">Topics</p>
+            {topicStates.map((t, i) => (
+              <div key={i} className="flex items-center gap-2.5 py-1.5 px-2 rounded-lg">
+                {t.status === "done" && (
+                  <span className="w-4 h-4 rounded-full bg-green-500/20 text-green-400 flex items-center justify-center text-xs flex-shrink-0">✓</span>
+                )}
+                {t.status === "generating" && (
+                  <span className="w-4 h-4 flex-shrink-0 flex items-center justify-center">
+                    <span className="w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+                  </span>
+                )}
+                {t.status === "error" && (
+                  <span className="w-4 h-4 rounded-full bg-red-500/20 text-red-400 flex items-center justify-center text-xs flex-shrink-0">✕</span>
+                )}
+                {t.status === "pending" && (
+                  <span className="w-4 h-4 rounded-full border border-slate-600 flex-shrink-0" />
+                )}
+                <span className={`text-sm truncate ${
+                  t.status === "done" ? "text-slate-300" :
+                  t.status === "generating" ? "text-white font-medium" :
+                  t.status === "error" ? "text-red-400" :
+                  "text-slate-500"
+                }`}>
+                  {t.name}
+                </span>
+              </div>
+            ))}
+          </aside>
+
+          {/* Right: live stream panel */}
+          <main className="flex-1 flex flex-col overflow-hidden">
+            {/* Summary bar */}
+            <div className="px-6 py-3 border-b border-slate-700 bg-slate-800/50 flex-shrink-0">
+              <p className="text-slate-400 text-xs leading-relaxed">{genPlan.summary}</p>
+            </div>
+
+            {/* Current topic label */}
+            {currentTopic && (
+              <div className="px-6 py-2 border-b border-slate-700 flex-shrink-0">
+                <p className="text-indigo-400 text-xs font-medium">
+                  Writing: <span className="text-indigo-300">{currentTopic.name}</span>
+                </p>
+              </div>
+            )}
+
+            {/* Streaming text */}
+            <div
+              ref={streamRef}
+              className="flex-1 overflow-y-auto px-6 py-5"
+            >
+              {streamBuffer ? (
+                <pre className="text-slate-300 text-sm font-mono whitespace-pre-wrap leading-relaxed">
+                  {streamBuffer}
+                  <span className="inline-block w-2 h-4 bg-indigo-400 ml-0.5 animate-pulse align-middle" />
+                </pre>
+              ) : doneCount === 0 ? (
+                <div className="flex items-center justify-center h-full text-slate-600 text-sm">
+                  Waiting for first topic…
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-slate-500 text-sm">
+                  <span className="animate-spin w-3.5 h-3.5 border-2 border-slate-500 border-t-transparent rounded-full" />
+                  Preparing next topic…
+                </div>
+              )}
+            </div>
+          </main>
         </div>
       </div>
     );

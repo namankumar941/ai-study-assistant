@@ -21,6 +21,7 @@ export default function FloatingAsk({ selectedText }: Props) {
   const [listening, setListening] = useState(false);
   const [loading, setLoading] = useState(false);
   const [context, setContext] = useState("");
+  const [contextExpanded, setContextExpanded] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
@@ -28,6 +29,12 @@ export default function FloatingAsk({ selectedText }: Props) {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [turns]);
+
+  useEffect(() => {
+    if (selectedText) {
+      setContext(selectedText);
+    }
+  }, [selectedText]);
 
   function handleOpen() {
     const sel = window.getSelection()?.toString().trim() || selectedText || "";
@@ -172,9 +179,20 @@ export default function FloatingAsk({ selectedText }: Props) {
           {context && (
             <div className="px-4 py-2 bg-slate-900/60 border-b border-slate-700 flex-shrink-0">
               <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="text-xs text-slate-500 mb-1">Context (selected text):</p>
-                  <p className="text-slate-400 text-xs font-mono line-clamp-2">{context}</p>
+                <div 
+                  className="min-w-0 flex-1 cursor-pointer group"
+                  onClick={() => setContextExpanded(!contextExpanded)}
+                  title={contextExpanded ? "Click to collapse" : "Click to expand"}
+                >
+                  <p className="text-xs text-slate-500 mb-1 flex items-center gap-1">
+                    Context (selected text):
+                    <span className="text-slate-600 group-hover:text-slate-400 transition-colors text-[10px]">
+                      {contextExpanded ? "▲" : "▼"}
+                    </span>
+                  </p>
+                  <p className={`text-slate-400 text-xs font-mono ${contextExpanded ? "whitespace-pre-wrap max-h-40 overflow-y-auto pr-1" : "line-clamp-2"}`}>
+                    {context}
+                  </p>
                 </div>
                 <button
                   onClick={() => setContext("")}

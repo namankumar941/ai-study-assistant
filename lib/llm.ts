@@ -11,7 +11,8 @@ async function callOpenAICompatible(
   baseUrl: string,
   model: string,
   messages: Message[],
-  apiKey?: string
+  apiKey?: string,
+  onToken?: (t: string) => void
 ): Promise<string> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -44,7 +45,11 @@ async function callOpenAICompatible(
       if (data === "[DONE]") break;
       try {
         const parsed = JSON.parse(data);
-        fullContent += parsed.choices[0]?.delta?.content ?? "";
+        const token = parsed.choices[0]?.delta?.content ?? "";
+        if (token) {
+          fullContent += token;
+          onToken?.(token);
+        }
       } catch {
         // incomplete chunk, skip
       }
@@ -54,7 +59,7 @@ async function callOpenAICompatible(
   return stripThinkTags(fullContent);
 }
 
-async function callAnthropic(messages: Message[]): Promise<string> {
+async function callAnthropic(messages: Message[], onToken?: (t: string) => void): Promise<string> {
   const systemMsg = messages.find((m) => m.role === "system");
   const rest = messages.filter((m) => m.role !== "system");
 
@@ -68,17 +73,44 @@ async function callAnthropic(messages: Message[]): Promise<string> {
     body: JSON.stringify({
       model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6",
       max_tokens: 8192,
+      stream: !!onToken,
       system: systemMsg?.content,
       messages: rest,
     }),
   });
 
   if (!res.ok) throw new Error(`Anthropic error (${res.status}): ${await res.text()}`);
-  const data = await res.json();
-  return data.content[0].text;
+
+  if (!onToken) {
+    const data = await res.json();
+    return data.content[0].text;
+  }
+
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let fullContent = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = decoder.decode(value, { stream: true });
+    for (const line of chunk.split("\n")) {
+      if (!line.startsWith("data: ")) continue;
+      const data = line.slice(6).trim();
+      try {
+        const parsed = JSON.parse(data);
+        if (parsed.type === "content_block_delta" && parsed.delta?.type === "text_delta") {
+          const token = parsed.delta.text ?? "";
+          if (token) { fullContent += token; onToken(token); }
+        }
+      } catch { /* skip */ }
+    }
+  }
+
+  return fullContent;
 }
 
-async function callGemini(messages: Message[]): Promise<string> {
+async function callGemini(messages: Message[], onToken?: (t: string) => void): Promise<string> {
   const systemMsg = messages.find((m) => m.role === "system");
   const rest = messages.filter((m) => m.role !== "system");
 
@@ -92,8 +124,9 @@ async function callGemini(messages: Message[]): Promise<string> {
     body.systemInstruction = { parts: [{ text: systemMsg.content }] };
   }
 
+  const endpoint = onToken ? "streamGenerateContent" : "generateContent";
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${process.env.GEMINI_MODEL || "gemini-2.0-flash"}:generateContent?key=${process.env.GEMINI_API_KEY}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${process.env.GEMINI_MODEL || "gemini-2.0-flash"}:${endpoint}?key=${process.env.GEMINI_API_KEY}&alt=sse`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -102,11 +135,41 @@ async function callGemini(messages: Message[]): Promise<string> {
   );
 
   if (!res.ok) throw new Error(`Gemini error (${res.status}): ${await res.text()}`);
-  const data = await res.json();
-  return data.candidates[0].content.parts[0].text;
+
+  if (!onToken) {
+    const data = await res.json();
+    return data.candidates[0].content.parts[0].text;
+  }
+
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let fullContent = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = decoder.decode(value, { stream: true });
+    for (const line of chunk.split("\n")) {
+      if (!line.startsWith("data: ")) continue;
+      try {
+        const parsed = JSON.parse(line.slice(6).trim());
+        const token = parsed.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+        if (token) { fullContent += token; onToken(token); }
+      } catch { /* skip */ }
+    }
+  }
+
+  return fullContent;
 }
 
 export async function callLLM(messages: Message[]): Promise<string> {
+  return callLLMStream(messages);
+}
+
+export async function callLLMStream(
+  messages: Message[],
+  onToken?: (t: string) => void
+): Promise<string> {
   const provider = process.env.LLM_PROVIDER || "llamacpp";
 
   switch (provider) {
@@ -114,19 +177,22 @@ export async function callLLM(messages: Message[]): Promise<string> {
       return callOpenAICompatible(
         process.env.LLAMACPP_BASE_URL || "http://localhost:8080",
         process.env.LLAMACPP_MODEL || "qwen3.5:9b",
-        messages
+        messages,
+        undefined,
+        onToken
       );
     case "anthropic":
-      return callAnthropic(messages);
+      return callAnthropic(messages, onToken);
     case "openai":
       return callOpenAICompatible(
         "https://api.openai.com",
         process.env.OPENAI_MODEL || "gpt-4o",
         messages,
-        process.env.OPENAI_API_KEY
+        process.env.OPENAI_API_KEY,
+        onToken
       );
     case "gemini":
-      return callGemini(messages);
+      return callGemini(messages, onToken);
     default:
       throw new Error(`Unknown LLM provider: ${provider}`);
   }

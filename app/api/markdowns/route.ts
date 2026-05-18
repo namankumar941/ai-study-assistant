@@ -4,8 +4,8 @@ import { extractSections } from "@/lib/markdown";
 
 export async function GET() {
   const rows = db
-    .prepare("SELECT id, name, content, created_at FROM markdowns ORDER BY created_at DESC")
-    .all() as unknown as { id: string; name: string; content: string; created_at: string }[];
+    .prepare("SELECT id, name, content, status, created_at FROM markdowns ORDER BY created_at DESC")
+    .all() as unknown as { id: string; name: string; content: string; status: string; created_at: string }[];
 
   const markdowns = rows.map(({ content, ...row }) => {
     const totalSections = extractSections(content).length;
@@ -21,6 +21,7 @@ export async function GET() {
       ...row,
       totalSections,
       completedSections,
+      status: row.status ?? "ready",
     };
   });
 

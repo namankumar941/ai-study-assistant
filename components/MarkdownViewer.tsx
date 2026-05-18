@@ -33,29 +33,44 @@ export default function MarkdownViewer({ sections, onActiveSection, onSelectionC
     return () => observersRef.current.forEach((o) => o.disconnect());
   }, [sections, onActiveSection]);
 
-  const handleMouseUp = useCallback(() => {
-    const selection = window.getSelection();
-    if (!selection || selection.isCollapsed || !selection.toString().trim()) return;
+  // Track text selection globally to catch mouseup outside container and keyboard selection
+  useEffect(() => {
+    const handleSelection = () => {
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed || !selection.toString().trim() || selection.rangeCount === 0) return;
 
-    const selectedText = selection.toString().trim();
-    const range = selection.getRangeAt(0);
-
-    // Find which section the selection is in
-    let sectionId = "";
-    let node: Node | null = range.commonAncestorContainer;
-    while (node) {
-      if (node instanceof HTMLElement) {
-        const el = node.closest("[data-section-id]");
-        if (el) { sectionId = el.getAttribute("data-section-id") || ""; break; }
+      const range = selection.getRangeAt(0);
+      
+      // Ensure the selection is within the markdown viewer
+      if (containerRef.current && !containerRef.current.contains(range.commonAncestorContainer)) {
+        return;
       }
-      node = node.parentNode;
-    }
 
-    onSelectionChange(selectedText, sectionId);
+      const selectedText = selection.toString().trim();
+      let sectionId = "";
+      let node: Node | null = range.commonAncestorContainer;
+      while (node) {
+        if (node instanceof HTMLElement) {
+          const el = node.closest("[data-section-id]");
+          if (el) { sectionId = el.getAttribute("data-section-id") || ""; break; }
+        }
+        node = node.parentNode;
+      }
+
+      onSelectionChange(selectedText, sectionId);
+    };
+
+    document.addEventListener("mouseup", handleSelection);
+    document.addEventListener("keyup", handleSelection);
+    
+    return () => {
+      document.removeEventListener("mouseup", handleSelection);
+      document.removeEventListener("keyup", handleSelection);
+    };
   }, [onSelectionChange]);
 
   return (
-    <div ref={containerRef} onMouseUp={handleMouseUp} className="select-text">
+    <div ref={containerRef} className="select-text">
       {sections.map((section) => {
         return (
           <div
