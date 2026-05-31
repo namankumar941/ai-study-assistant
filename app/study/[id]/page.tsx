@@ -5,7 +5,7 @@ import Link from "next/link";
 import { v4 as uuidv4 } from "uuid";
 import { extractSections, buildHeadingTree, Section, HeadingNode } from "@/lib/markdown";
 import Navigation from "@/components/Navigation";
-import MarkdownViewer from "@/components/MarkdownViewer";
+import MarkdownViewer, { Highlight } from "@/components/MarkdownViewer";
 import ProgressBar from "@/components/ProgressBar";
 import QuizSection from "@/components/QuizSection";
 import FloatingCommentCard, { CommentCardData } from "@/components/FloatingCommentCard";
@@ -114,17 +114,20 @@ export default function StudyPage() {
   const [selectedText, setSelectedText] = useState("");
   const [selectedSectionId, setSelectedSectionId] = useState("");
   const [generatingFor, setGeneratingFor] = useState<string | null>(null);
+  const [highlights, setHighlights] = useState<Highlight[]>([]);
 
   useEffect(() => {
     async function load() {
-      const [mdRes, progressRes, commentsRes] = await Promise.all([
+      const [mdRes, progressRes, commentsRes, highlightsRes] = await Promise.all([
         fetch(`/api/markdowns/${id}`),
         fetch(`/api/progress/${id}`),
         fetch(`/api/comments/${id}`),
+        fetch(`/api/highlights/${id}`),
       ]);
       const md = await mdRes.json();
       const prog = await progressRes.json();
       const comms: DbComment[] = await commentsRes.json();
+      setHighlights(await highlightsRes.json());
 
       setName(md.name);
 
@@ -306,6 +309,65 @@ export default function StudyPage() {
   function deleteCard(uid: string) {
     setCommentCards((prev) => prev.filter((c) => c.uid !== uid));
   }
+
+  const handleHighlight = useCallback(async (text: string, sectionId: string, color: string) => {
+    const res = await fetch(`/api/highlights/${id}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sectionId, selectedText: text, color }),
+    });
+    const h: Highlight = await res.json();
+    setHighlights((prev) => [...prev, h]);
+  }, [id]);
+
+  const handleRemoveHighlight = useCallback(async (highlightId: string) => {
+    await fetch(`/api/highlights/${id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ highlightId }),
+    });
+    setHighlights((prev) => prev.filter((h) => h.id !== highlightId));
+  }, [id]);
+
+  const handleRecolorHighlight = useCallback(async (highlightId: string, color: string) => {
+    const res = await fetch(`/api/highlights/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ highlightId, color }),
+    });
+    const updated: Highlight = await res.json();
+    setHighlights((prev) => prev.map((h) => h.id === highlightId ? updated : h));
+  }, [id]);
+
+  const handlePartialRemove = useCallback(async (highlightId: string, textToRemove: string) => {
+    const original = highlights.find((h) => h.id === highlightId);
+    if (!original) return;
+
+    // Delete the original highlight
+    await fetch(`/api/highlights/${id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ highlightId }),
+    });
+
+    // Re-create the non-removed portions (trim so we don't create blank highlights)
+    const idx = original.selected_text.indexOf(textToRemove);
+    const before = original.selected_text.slice(0, idx).trim();
+    const after = original.selected_text.slice(idx + textToRemove.length).trim();
+
+    const created: Highlight[] = [];
+    for (const part of [before, after]) {
+      if (!part) continue;
+      const res = await fetch(`/api/highlights/${id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sectionId: original.section_id, selectedText: part, color: original.color }),
+      });
+      created.push(await res.json());
+    }
+
+    setHighlights((prev) => [...prev.filter((h) => h.id !== highlightId), ...created]);
+  }, [id, highlights]);
 
   const handleSelectionChange = useCallback((text: string, sectionId: string) => {
     setSelectedText(text);
@@ -500,8 +562,13 @@ export default function StudyPage() {
           {tab === "study" ? (
             <MarkdownViewer
               sections={sections}
+              highlights={highlights}
               onActiveSection={setActiveId}
               onSelectionChange={handleSelectionChange}
+              onHighlight={handleHighlight}
+              onRemoveHighlight={handleRemoveHighlight}
+              onRecolorHighlight={handleRecolorHighlight}
+              onPartialRemove={handlePartialRemove}
             />
           ) : (
             <QuizSection markdownId={id} view={tab === "all" ? "all" : "quiz"} progress={progress} />

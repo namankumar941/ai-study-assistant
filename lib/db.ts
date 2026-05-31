@@ -76,4 +76,17 @@ try { db.exec("ALTER TABLE quiz_questions ADD COLUMN last_score INTEGER"); } cat
 try { db.exec("ALTER TABLE markdowns ADD COLUMN status TEXT DEFAULT 'ready'"); } catch { /* already exists */ }
 try { db.exec("ALTER TABLE markdowns ADD COLUMN generation_plan TEXT"); } catch { /* already exists */ }
 
+// Highlights
+db.exec(`
+  CREATE TABLE IF NOT EXISTS highlights (
+    id TEXT PRIMARY KEY,
+    markdown_id TEXT NOT NULL,
+    section_id TEXT NOT NULL DEFAULT '',
+    selected_text TEXT NOT NULL,
+    color TEXT NOT NULL DEFAULT '#fef08a',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (markdown_id) REFERENCES markdowns(id) ON DELETE CASCADE
+  );
+`);
+
 export default db;
