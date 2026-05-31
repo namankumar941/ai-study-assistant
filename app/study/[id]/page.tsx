@@ -25,6 +25,7 @@ interface TopicState {
 interface DbComment {
   id: string;
   text: string;
+  section_id: string;
   pos_x: number;
   pos_y: number;
 }
@@ -152,6 +153,7 @@ export default function StudyPage() {
           id: c.id,
           text: c.text,
           isSaved: true,
+          sectionId: c.section_id || undefined,
           position: { x: c.pos_x ?? 120, y: c.pos_y ?? 120 },
         }))
       );
@@ -290,6 +292,7 @@ export default function StudyPage() {
       uid: uuidv4(),
       text: "",
       isSaved: false,
+      sectionId: activeId || undefined,
       position: {
         x: Math.max(80, window.innerWidth / 2 - 150 + (commentCards.length % 5) * 30 + window.scrollX),
         y: Math.max(80, 140 + (commentCards.length % 5) * 30 + window.scrollY),
@@ -563,6 +566,7 @@ export default function StudyPage() {
             <MarkdownViewer
               sections={sections}
               highlights={highlights}
+              comments={commentCards.filter((c) => c.text.trim()).map((c) => ({ id: c.uid, text: c.text, sectionId: c.sectionId }))}
               onActiveSection={setActiveId}
               onSelectionChange={handleSelectionChange}
               onHighlight={handleHighlight}

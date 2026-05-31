@@ -20,7 +20,7 @@ export async function GET(_req: NextRequest, { params }: { params: { markdownId:
 }
 
 export async function POST(req: NextRequest, { params }: { params: { markdownId: string } }) {
-  const { text, posX = 120, posY = 120 } = await req.json();
+  const { text, sectionId = "", posX = 120, posY = 120 } = await req.json();
 
   if (!text?.trim()) {
     return NextResponse.json({ error: "text is required" }, { status: 400 });
@@ -28,8 +28,8 @@ export async function POST(req: NextRequest, { params }: { params: { markdownId:
 
   const id = uuidv4();
   db.prepare(
-    "INSERT INTO comments (id, markdown_id, section_id, text, pos_x, pos_y) VALUES (?, ?, '', ?, ?, ?)"
-  ).run(id, params.markdownId, text, posX, posY);
+    "INSERT INTO comments (id, markdown_id, section_id, text, pos_x, pos_y) VALUES (?, ?, ?, ?, ?, ?)"
+  ).run(id, params.markdownId, sectionId, text, posX, posY);
 
   const comment = db.prepare("SELECT * FROM comments WHERE id = ?").get(id) as unknown as Comment;
   return NextResponse.json(comment);

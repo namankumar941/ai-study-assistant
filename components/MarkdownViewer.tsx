@@ -39,12 +39,143 @@ const PRESET_COLORS = [
 interface Props {
   sections: Section[];
   highlights: Highlight[];
+  comments: { id: string; text: string; sectionId?: string }[];
   onActiveSection: (id: string) => void;
   onSelectionChange: (text: string, sectionId: string) => void;
   onHighlight: (text: string, sectionId: string, color: string) => void;
   onRemoveHighlight: (id: string) => void;
   onRecolorHighlight: (id: string, color: string) => void;
   onPartialRemove: (highlightId: string, textToRemove: string) => void;
+}
+
+function HighlightHeading({ section, dim }: { section: Section; dim?: boolean }) {
+  if (section.level === 1)
+    return <h1 className={`text-2xl font-bold mt-8 mb-2 pb-2 border-b border-slate-700/50 ${dim ? "text-slate-600" : "text-white"}`}>{section.title}</h1>;
+  if (section.level === 2)
+    return <h2 className={`text-lg font-bold mt-6 mb-1 ${dim ? "text-slate-600" : "text-slate-100"}`}>{section.title}</h2>;
+  return <h3 className={`text-base font-semibold mt-4 mb-1 ${dim ? "text-slate-600" : "text-slate-200"}`}>{section.title}</h3>;
+}
+
+function HighlightsFilterView({ sections, highlights, comments }: { sections: Section[]; highlights: Highlight[]; comments: { id: string; text: string; sectionId?: string }[] }) {
+  if (highlights.length === 0 && comments.length === 0) {
+    return (
+      <div className="text-center py-16 text-slate-500">
+        No highlights or comments yet.
+      </div>
+    );
+  }
+
+  const highlightsBySection = new Map<string, Highlight[]>();
+  for (const h of highlights) {
+    const key = h.section_id || "__root__";
+    if (!highlightsBySection.has(key)) highlightsBySection.set(key, []);
+    highlightsBySection.get(key)!.push(h);
+  }
+
+  const commentsBySection = new Map<string, typeof comments>();
+  for (const c of comments) {
+    const key = c.sectionId || "__root__";
+    if (!commentsBySection.has(key)) commentsBySection.set(key, []);
+    commentsBySection.get(key)!.push(c);
+  }
+
+  const items: React.ReactNode[] = [];
+  const shownHeadings = new Set<string>();
+
+  function ensureHeadings(sectionIndex: number, section: Section) {
+    const ancestors: Section[] = [];
+    let trackedLevel = section.level;
+    for (let j = sectionIndex - 1; j >= 0; j--) {
+      if (sections[j].level < trackedLevel) {
+        ancestors.unshift(sections[j]);
+        trackedLevel = sections[j].level;
+        if (trackedLevel === 1) break;
+      }
+    }
+    for (const ancestor of ancestors) {
+      if (!shownHeadings.has(ancestor.id)) {
+        shownHeadings.add(ancestor.id);
+        items.push(<HighlightHeading key={`h-${ancestor.id}`} section={ancestor} dim />);
+      }
+    }
+    if (!shownHeadings.has(section.id)) {
+      shownHeadings.add(section.id);
+      items.push(<HighlightHeading key={`h-${section.id}`} section={section} />);
+    }
+  }
+
+  for (let i = 0; i < sections.length; i++) {
+    const section = sections[i];
+    const sectionHighlights = highlightsBySection.get(section.id);
+    const sectionComments = commentsBySection.get(section.id);
+    if (!sectionHighlights && !sectionComments) continue;
+
+    ensureHeadings(i, section);
+
+    if (sectionHighlights) {
+      items.push(
+        <div key={`hl-${section.id}`} className="ml-4 pl-3 border-l border-slate-700 mb-3 space-y-2">
+          {sectionHighlights.map((h) => (
+            <p
+              key={h.id}
+              className="text-slate-200 text-sm leading-relaxed"
+              style={{
+                textDecoration: "underline",
+                textDecorationColor: h.color,
+                textDecorationThickness: "2px",
+                textUnderlineOffset: "3px",
+              }}
+            >
+              {h.selected_text}
+            </p>
+          ))}
+        </div>
+      );
+    }
+
+    if (sectionComments) {
+      items.push(
+        <div key={`cm-${section.id}`} className="ml-4 mb-6 space-y-2">
+          {sectionComments.map((c) => (
+            <div key={c.id} className="bg-amber-950/30 border border-amber-800/40 rounded-lg px-3 py-2 text-slate-200 text-sm leading-relaxed whitespace-pre-wrap">
+              {c.text}
+            </div>
+          ))}
+        </div>
+      );
+    }
+  }
+
+  const rootHighlights = highlightsBySection.get("__root__");
+  const rootComments = commentsBySection.get("__root__");
+
+  if (rootHighlights || rootComments) {
+    items.push(
+      <div key="root-items" className="mb-6 space-y-2">
+        {rootHighlights?.map((h) => (
+          <p
+            key={h.id}
+            className="text-slate-200 text-sm leading-relaxed"
+            style={{
+              textDecoration: "underline",
+              textDecorationColor: h.color,
+              textDecorationThickness: "2px",
+              textUnderlineOffset: "3px",
+            }}
+          >
+            {h.selected_text}
+          </p>
+        ))}
+        {rootComments?.map((c) => (
+          <div key={c.id} className="bg-amber-950/30 border border-amber-800/40 rounded-lg px-3 py-2 text-slate-200 text-sm leading-relaxed whitespace-pre-wrap">
+            {c.text}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return <div>{items}</div>;
 }
 
 // Memoized so it never re-renders when picker/preview state changes — keeps the
@@ -123,6 +254,7 @@ const MarkdownContent = React.memo(function MarkdownContent({
 export default function MarkdownViewer({
   sections,
   highlights,
+  comments,
   onActiveSection,
   onSelectionChange,
   onHighlight,
@@ -134,6 +266,7 @@ export default function MarkdownViewer({
   const observersRef = useRef<IntersectionObserver[]>([]);
   const [picker, setPicker] = useState<PickerState | null>(null);
   const [preview, setPreview] = useState<PreviewHighlight | null>(null);
+  const [filterMode, setFilterMode] = useState(false);
 
   // Keep refs so event handlers always read fresh values without stale closures
   const highlightsRef = useRef(highlights);
@@ -384,7 +517,29 @@ export default function MarkdownViewer({
 
   return (
     <>
-      <MarkdownContent sections={sections} containerRef={containerRef} />
+      <div className="flex justify-end mb-4">
+        <button
+          onClick={() => setFilterMode((f) => !f)}
+          title={filterMode ? "Show all content" : "Show only highlights"}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+            filterMode
+              ? "bg-indigo-600 text-white hover:bg-indigo-500"
+              : "bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 border border-slate-700"
+          }`}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+            <line x1="4" y1="6" x2="20" y2="6" />
+            <line x1="8" y1="12" x2="16" y2="12" />
+            <line x1="11" y1="18" x2="13" y2="18" />
+          </svg>
+          {filterMode ? "All content" : "Highlights only"}
+        </button>
+      </div>
+
+      {filterMode && <HighlightsFilterView sections={sections} highlights={highlights} comments={comments} />}
+      <div className={filterMode ? "hidden" : ""}>
+        <MarkdownContent sections={sections} containerRef={containerRef} />
+      </div>
 
       {picker && (
         <div

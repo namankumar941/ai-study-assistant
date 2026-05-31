@@ -8,6 +8,7 @@ export interface CommentCardData {
   text: string;
   isSaved: boolean;
   position: { x: number; y: number };
+  sectionId?: string;
 }
 
 interface Props {
@@ -126,7 +127,7 @@ export default function FloatingCommentCard({ card, markdownId, onUpdate, onClos
         const res = await fetch(`/api/comments/${markdownId}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text, posX: pos.x, posY: pos.y }),
+          body: JSON.stringify({ text, sectionId: card.sectionId ?? "", posX: pos.x, posY: pos.y }),
         });
         const saved = await res.json();
         onUpdate(card.uid, { id: saved.id, text, isSaved: true });
