@@ -2,9 +2,9 @@ import { NextRequest } from "next/server";
 import { callLLMStream } from "@/lib/llm";
 
 export async function POST(req: NextRequest) {
-  const { topic } = await req.json();
-  if (!topic?.trim()) {
-    return new Response(JSON.stringify({ error: "topic required" }), { status: 400 });
+  const { plan, message } = await req.json();
+  if (!plan || !message?.trim()) {
+    return new Response(JSON.stringify({ error: "plan and message required" }), { status: 400 });
   }
 
   const encoder = new TextEncoder();
@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
           [
             {
               role: "system",
-              content: `You are a curriculum designer. Given a study topic, return a structured learning plan as valid JSON only — no markdown, no explanation, no code fences.
+              content: `You are a curriculum designer. Given an existing course plan and a modification request, return the updated plan as valid JSON only — no markdown, no explanation, no code fences.
 
 Format:
 {
@@ -32,13 +32,19 @@ Format:
 }
 
 Rules:
-- Generate however many topics the subject genuinely requires — let the scope of the subject determine the count
+- Keep however many topics are needed — let the subject scope determine the count
 - Each topic name should be specific and self-contained (3-6 words max)
+- Apply the requested changes while keeping the course coherent
 - Return ONLY the JSON object, nothing else`,
             },
             {
               role: "user",
-              content: `I want to study: ${topic}`,
+              content: `Current plan:
+${JSON.stringify(plan, null, 2)}
+
+User request: ${message}
+
+Return the updated plan as JSON:`,
             },
           ],
           (token) => send({ token })

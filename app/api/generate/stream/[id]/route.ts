@@ -1,12 +1,7 @@
 import { NextRequest } from "next/server";
 import db from "@/lib/db";
 import { callLLMStream } from "@/lib/llm";
-
-interface GenerationPlan {
-  title: string;
-  summary: string;
-  topics: string[];
-}
+import { countCompletedTopics, GenerationPlan } from "@/lib/course-generator";
 
 interface MarkdownRow {
   id: string;
@@ -15,31 +10,22 @@ interface MarkdownRow {
   generation_plan: string | null;
 }
 
-function countCompletedTopics(content: string, topics: string[]): number {
-  // Count how many ## headings matching topic names already exist in content
-  let count = 0;
-  for (const topic of topics) {
-    if (content.includes(`## ${topic}`)) count++;
-  }
-  return count;
-}
+// Module-level lock — only one SSE connection runs the generator at a time.
+// Subsequent reconnects enter monitor mode and poll the DB.
+const activeGenerations = new Set<string>();
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { id: string } }
 ) {
   const row = db
     .prepare("SELECT id, content, status, generation_plan FROM markdowns WHERE id = ?")
     .get(params.id) as MarkdownRow | undefined;
 
-  if (!row) {
-    return new Response("Not found", { status: 404 });
-  }
+  if (!row) return new Response("Not found", { status: 404 });
 
-  // If already complete, send a done event immediately
   if (row.status === "ready") {
-    const body = `data: ${JSON.stringify({ type: "done" })}\n\n`;
-    return new Response(body, {
+    return new Response(`data: ${JSON.stringify({ type: "done" })}\n\n`, {
       headers: {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
@@ -63,34 +49,75 @@ export async function GET(
         try {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
         } catch {
-          // client disconnected
+          // client disconnected — generation continues below regardless
         }
       };
 
-      // Figure out which topics are already done (resume support)
-      const currentRow = db
+      // Send already-completed topics so the reconnecting client can catch up
+      const freshRow = db
         .prepare("SELECT content FROM markdowns WHERE id = ?")
         .get(params.id) as { content: string } | undefined;
-      const currentContent = currentRow?.content ?? row.content;
+      const currentContent = freshRow?.content ?? row.content;
       const startFrom = countCompletedTopics(currentContent, topics);
 
-      let accumulatedContent = currentContent;
+      for (let i = 0; i < startFrom; i++) {
+        send({ type: "topic_done", topic: topics[i], index: i, total: topics.length });
+      }
 
-      for (let i = startFrom; i < topics.length; i++) {
-        const topic = topics[i];
-        const completedTitles = topics.slice(0, i);
+      if (activeGenerations.has(params.id)) {
+        // ── Monitor mode ─────────────────────────────────────────────────────
+        // Another SSE connection is already running the generator.
+        // Poll the DB and forward topic_done events until it finishes.
+        let lastKnown = startFrom;
+        while (!req.signal?.aborted) {
+          await new Promise<void>((r) => setTimeout(r, 1500));
 
-        send({ type: "topic_start", topic, index: i, total: topics.length });
+          const poll = db
+            .prepare("SELECT content, status FROM markdowns WHERE id = ?")
+            .get(params.id) as { content: string; status: string } | undefined;
+          if (!poll) break;
 
-        const previousContext =
-          completedTitles.length === 0
-            ? "This is the first topic."
-            : `Previously covered: ${completedTitles.join(", ")}.`;
+          const nowDone = countCompletedTopics(poll.content, topics);
+          while (lastKnown < nowDone) {
+            send({
+              type: "topic_done",
+              topic: topics[lastKnown],
+              index: lastKnown,
+              total: topics.length,
+            });
+            lastKnown++;
+          }
 
-        const messages = [
-          {
-            role: "system" as const,
-            content: `You are an expert educational content writer creating a comprehensive study guide.
+          if (poll.status === "ready") {
+            send({ type: "done" });
+            break;
+          }
+        }
+      } else {
+        // ── Generator mode ───────────────────────────────────────────────────
+        // This SSE connection owns the generation loop.
+        // It runs to completion even if the client disconnects — send() catches
+        // the controller errors, and callLLMStream has no abort signal, so the
+        // network requests to the LLM continue uninterrupted.
+        activeGenerations.add(params.id);
+        let accumulatedContent = currentContent;
+
+        try {
+          for (let i = startFrom; i < topics.length; i++) {
+            const topic = topics[i];
+            const completedTitles = topics.slice(0, i);
+
+            send({ type: "topic_start", topic, index: i, total: topics.length });
+
+            const previousContext =
+              completedTitles.length === 0
+                ? "This is the first topic."
+                : `Previously covered: ${completedTitles.join(", ")}.`;
+
+            const messages = [
+              {
+                role: "system" as const,
+                content: `You are an expert educational content writer creating a comprehensive study guide.
 
 Course: "${title}"
 Course Overview: ${summary}
@@ -107,38 +134,40 @@ Requirements:
 - Assume the reader has studied the previous topics
 - Write 300-600 words of rich educational content
 - Do NOT re-state the course title or repeat previous topics' content`,
-          },
-          {
-            role: "user" as const,
-            content: `Write the section for: ${topic}`,
-          },
-        ];
+              },
+              {
+                role: "user" as const,
+                content: `Write the section for: ${topic}`,
+              },
+            ];
 
-        let topicContent = "";
-        try {
-          await callLLMStream(messages, (token) => {
-            topicContent += token;
-            send({ type: "token", topic, index: i, content: token });
-          });
-        } catch (err) {
-          send({ type: "error", topic, index: i, message: String(err) });
-          continue;
+            let topicContent = "";
+            try {
+              await callLLMStream(messages, (token) => {
+                topicContent += token;
+                send({ type: "token", topic, index: i, content: token });
+              });
+            } catch (err) {
+              send({ type: "error", topic, index: i, message: String(err) });
+              continue;
+            }
+
+            accumulatedContent += `\n\n${topicContent.trim()}`;
+            db.prepare("UPDATE markdowns SET content = ? WHERE id = ?").run(
+              accumulatedContent,
+              params.id
+            );
+            send({ type: "topic_done", topic, index: i });
+          }
+
+          db.prepare("UPDATE markdowns SET status = 'ready' WHERE id = ?").run(params.id);
+          send({ type: "done" });
+        } finally {
+          activeGenerations.delete(params.id);
         }
-
-        // Append completed topic to markdown content in DB
-        accumulatedContent += `\n\n${topicContent.trim()}`;
-        db.prepare("UPDATE markdowns SET content = ? WHERE id = ?").run(
-          accumulatedContent,
-          params.id
-        );
-
-        send({ type: "topic_done", topic, index: i });
       }
 
-      // Mark as ready
-      db.prepare("UPDATE markdowns SET status = 'ready' WHERE id = ?").run(params.id);
-      send({ type: "done" });
-      controller.close();
+      try { controller.close(); } catch {}
     },
   });
 

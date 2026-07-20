@@ -44,9 +44,17 @@ export default function HomePage() {
               <p className="text-slate-400 text-xs">Your AI-powered markdown study companion</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 text-xs text-slate-500">
-            <span className="w-2 h-2 rounded-full bg-green-400 inline-block" />
-            LLM Ready
+          <div className="flex items-center gap-4">
+            <Link
+              href="/quiz"
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium"
+            >
+              Quiz
+            </Link>
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <span className="w-2 h-2 rounded-full bg-green-400 inline-block" />
+              LLM Ready
+            </div>
           </div>
         </div>
       </header>

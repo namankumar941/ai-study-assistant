@@ -37,7 +37,7 @@ export async function POST(req: NextRequest, { params }: { params: { markdownId:
 
 // Update text and/or position of an existing comment
 export async function PUT(req: NextRequest, { params }: { params: { markdownId: string } }) {
-  const { commentId, text, posX, posY } = await req.json();
+  const { commentId, text, posX, posY, width, height, sectionId } = await req.json();
 
   if (!commentId) return NextResponse.json({ error: "commentId required" }, { status: 400 });
 
@@ -48,6 +48,9 @@ export async function PUT(req: NextRequest, { params }: { params: { markdownId: 
   if (text !== undefined) { parts.push("text = ?"); values.push(text); }
   if (posX !== undefined) { parts.push("pos_x = ?"); values.push(posX); }
   if (posY !== undefined) { parts.push("pos_y = ?"); values.push(posY); }
+  if (width !== undefined) { parts.push("width = ?"); values.push(width); }
+  if (height !== undefined) { parts.push("height = ?"); values.push(height); }
+  if (sectionId !== undefined) { parts.push("section_id = ?"); values.push(sectionId); }
 
   if (parts.length === 0) return NextResponse.json({ ok: true });
 

@@ -10,8 +10,6 @@ export async function POST(req: NextRequest) {
 
   const id = uuidv4();
   const plan = JSON.stringify({ title, summary, topics });
-
-  // Initial skeleton content: title + summary block
   const skeleton = `# ${title}\n\n> ${summary}\n`;
 
   db.prepare(

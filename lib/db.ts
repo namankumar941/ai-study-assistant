@@ -68,6 +68,8 @@ db.exec(`
 // Migrate existing DBs — add pos_x/pos_y if missing
 try { db.exec("ALTER TABLE comments ADD COLUMN pos_x REAL DEFAULT 120"); } catch { /* already exists */ }
 try { db.exec("ALTER TABLE comments ADD COLUMN pos_y REAL DEFAULT 120"); } catch { /* already exists */ }
+try { db.exec("ALTER TABLE comments ADD COLUMN width REAL DEFAULT 300"); } catch { /* already exists */ }
+try { db.exec("ALTER TABLE comments ADD COLUMN height REAL DEFAULT 220"); } catch { /* already exists */ }
 // Migrate quiz_questions columns
 try { db.exec("ALTER TABLE quiz_questions ADD COLUMN difficulty TEXT DEFAULT 'medium'"); } catch { /* already exists */ }
 try { db.exec("ALTER TABLE quiz_questions ADD COLUMN needs_revisit INTEGER DEFAULT 0"); } catch { /* already exists */ }
