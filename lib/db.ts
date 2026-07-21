@@ -91,4 +91,14 @@ db.exec(`
   );
 `);
 
+// Auto-backup on startup
+if (process.env.NEXT_PUBLIC_DB_BACKUP_ENABLED === 'true') {
+  const backupName = process.env.DB_BACKUP_NAME || 'study.db.bak';
+  const backupPath = path.join(DB_DIR, backupName);
+  try {
+    db.exec('PRAGMA wal_checkpoint(FULL)');
+    fs.copyFileSync(DB_PATH, backupPath);
+  } catch { /* ignore — DB may not exist yet on first run */ }
+}
+
 export default db;
