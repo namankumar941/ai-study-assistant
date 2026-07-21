@@ -41,7 +41,6 @@ interface Props {
   highlights: Highlight[];
   comments: { id: string; text: string; sectionId?: string }[];
   filterMode: boolean;
-  onFilterModeChange: (value: boolean) => void;
   onActiveSection: (id: string) => void;
   onSelectionChange: (text: string, sectionId: string) => void;
   onHighlight: (text: string, sectionId: string, color: string) => void;
@@ -606,12 +605,25 @@ function HighlightsFilterView({
     );
   }
 
+  const sectionById = new Map<string, Section>();
+  for (const s of sections) sectionById.set(s.id, s);
+
   const highlightsBySection = new Map<string, Highlight[]>();
   for (const h of highlights) {
     const key = h.section_id || "__root__";
     if (!highlightsBySection.has(key)) highlightsBySection.set(key, []);
     highlightsBySection.get(key)!.push(h);
   }
+
+  // Sort each section's highlights by document position
+  highlightsBySection.forEach((hl: Highlight[], sectionId: string) => {
+    const content = sectionById.get(sectionId)?.content ?? "";
+    hl.sort((a: Highlight, b: Highlight) => {
+      const ai = content.indexOf(a.selected_text);
+      const bi = content.indexOf(b.selected_text);
+      return (ai === -1 ? Infinity : ai) - (bi === -1 ? Infinity : bi);
+    });
+  });
 
   const commentsBySection = new Map<string, typeof comments>();
   for (const c of comments) {
@@ -700,6 +712,7 @@ function HighlightsFilterView({
                 textDecorationColor: h.color,
                 textDecorationThickness: "2px",
                 textUnderlineOffset: "3px",
+                whiteSpace: "pre-wrap",
               }}
             >
               {h.selected_text}
@@ -739,6 +752,7 @@ function HighlightsFilterView({
               textDecorationColor: h.color,
               textDecorationThickness: "2px",
               textUnderlineOffset: "3px",
+              whiteSpace: "pre-wrap",
             }}
           >
             {h.selected_text}
@@ -837,7 +851,6 @@ export default function MarkdownViewer({
   highlights,
   comments,
   filterMode,
-  onFilterModeChange,
   onActiveSection,
   onSelectionChange,
   onHighlight,
@@ -911,25 +924,6 @@ export default function MarkdownViewer({
 
   return (
     <>
-      <div className="flex justify-end mb-4">
-        <button
-          onClick={() => onFilterModeChange(!filterMode)}
-          title={filterMode ? "Show all content" : "Show only highlights"}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-            filterMode
-              ? "bg-indigo-600 text-white hover:bg-indigo-500"
-              : "bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 border border-slate-700"
-          }`}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
-            <line x1="4" y1="6" x2="20" y2="6" />
-            <line x1="8" y1="12" x2="16" y2="12" />
-            <line x1="11" y1="18" x2="13" y2="18" />
-          </svg>
-          {filterMode ? "All content" : "Highlights only"}
-        </button>
-      </div>
-
       {filterMode && (
         <HighlightsFilterView
           sections={sections}

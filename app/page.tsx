@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import FileUpload from "@/components/FileUpload";
 import StudyGenerator from "@/components/StudyGenerator";
+import CreateFileModal from "@/components/CreateFileModal";
 
 interface MarkdownFile {
   id: string;
@@ -16,6 +17,8 @@ interface MarkdownFile {
 export default function HomePage() {
   const [files, setFiles] = useState<MarkdownFile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [inputMode, setInputMode] = useState<"upload" | "create">("upload");
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   async function load() {
     const res = await fetch("/api/markdowns");
@@ -65,11 +68,49 @@ export default function HomePage() {
           <StudyGenerator />
         </section>
 
-        {/* Upload */}
+        {/* Upload / Create */}
         <section>
-          <h2 className="text-white font-semibold text-lg mb-4">Upload Markdown File</h2>
-          <FileUpload key={files.length} />
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-white font-semibold text-lg">
+              {inputMode === "upload" ? "Upload Markdown File" : "Create File Manually"}
+            </h2>
+            <div className="flex items-center gap-1 bg-slate-800 rounded-xl p-1 border border-slate-700">
+              <button
+                onClick={() => setInputMode("upload")}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  inputMode === "upload" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-white"
+                }`}
+              >
+                Upload
+              </button>
+              <button
+                onClick={() => setInputMode("create")}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  inputMode === "create" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-white"
+                }`}
+              >
+                Create
+              </button>
+            </div>
+          </div>
+
+          {inputMode === "upload" ? (
+            <FileUpload key={files.length} />
+          ) : (
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="w-full border-2 border-dashed border-slate-600 hover:border-indigo-500 rounded-xl p-8 text-center transition-colors group"
+            >
+              <div className="text-4xl mb-3">✏️</div>
+              <p className="text-slate-200 font-medium group-hover:text-white">Create a new markdown file</p>
+              <p className="text-slate-500 text-sm mt-1">Write or dictate sections using voice input</p>
+            </button>
+          )}
         </section>
+
+        {showCreateModal && (
+          <CreateFileModal onClose={() => setShowCreateModal(false)} />
+        )}
 
         {/* File List */}
         <section>

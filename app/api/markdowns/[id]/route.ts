@@ -10,6 +10,21 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   return NextResponse.json(row);
 }
 
+export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    const { content, name } = await req.json();
+    if (content !== undefined) {
+      db.prepare("UPDATE markdowns SET content = ? WHERE id = ?").run(content, params.id);
+    }
+    if (name !== undefined) {
+      db.prepare("UPDATE markdowns SET name = ? WHERE id = ?").run(name, params.id);
+    }
+    return NextResponse.json({ ok: true });
+  } catch {
+    return NextResponse.json({ error: "Failed to update" }, { status: 500 });
+  }
+}
+
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   db.prepare("DELETE FROM markdowns WHERE id = ?").run(params.id);
   return NextResponse.json({ ok: true });

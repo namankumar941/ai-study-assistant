@@ -10,6 +10,7 @@ import ProgressBar from "@/components/ProgressBar";
 import QuizSection from "@/components/QuizSection";
 import FloatingCommentCard, { CommentCardData } from "@/components/FloatingCommentCard";
 import FloatingAsk from "@/components/FloatingAsk";
+import AddSectionPanel from "@/components/AddSectionPanel";
 
 interface GenerationPlan {
   title: string;
@@ -87,6 +88,9 @@ export default function StudyPage() {
   const streamPanelRef = useRef<HTMLDivElement>(null);
   const esRef = useRef<EventSource | null>(null);
 
+  const [rawContent, setRawContent] = useState("");
+  const [showAddSection, setShowAddSection] = useState(false);
+
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(256);
   const isResizing = useRef(false);
@@ -152,6 +156,7 @@ export default function StudyPage() {
         (async () => {
           const mdRes = await fetch(`/api/markdowns/${id}`);
           const md = await mdRes.json();
+          setRawContent(md.content ?? "");
           const parsed = extractSections(md.content);
           setSections(parsed);
           setHeadings(buildHeadingTree(parsed));
@@ -170,6 +175,7 @@ export default function StudyPage() {
         fetch(`/api/markdowns/${id}`)
           .then((r) => r.json())
           .then((md) => {
+            setRawContent(md.content ?? "");
             const parsed = extractSections(md.content);
             setSections(parsed);
             setHeadings(buildHeadingTree(parsed));
@@ -195,6 +201,7 @@ export default function StudyPage() {
       const comms: DbComment[] = await commentsRes.json();
       setHighlights(await highlightsRes.json());
       setName(md.name);
+      setRawContent(md.content ?? "");
 
       if (md.status === "generating" && md.generation_plan) {
         const plan: GenerationPlan = JSON.parse(md.generation_plan);
@@ -641,7 +648,6 @@ export default function StudyPage() {
                     .filter((c) => c.text.trim())
                     .map((c) => ({ id: c.uid, text: c.text, sectionId: c.sectionId }))}
                   filterMode={filterMode}
-                  onFilterModeChange={setFilterMode}
                   onActiveSection={setActiveId}
                   onSelectionChange={handleSelectionChange}
                   onHighlight={handleHighlight}
@@ -697,6 +703,29 @@ export default function StudyPage() {
       {tab === "study" && !isGenerating && (
         <div className="fixed bottom-6 right-6 z-40 flex items-center gap-3">
           <button
+            onClick={() => setFilterMode((m) => !m)}
+            title={filterMode ? "Show all content" : "Show only highlights"}
+            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-full shadow-lg font-medium text-sm transition-colors ${
+              filterMode
+                ? "bg-indigo-600 text-white hover:bg-indigo-500"
+                : "bg-slate-700 text-slate-300 hover:text-white hover:bg-slate-600 border border-slate-600"
+            }`}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+              <line x1="4" y1="6" x2="20" y2="6" />
+              <line x1="8" y1="12" x2="16" y2="12" />
+              <line x1="11" y1="18" x2="13" y2="18" />
+            </svg>
+            {filterMode ? "All content" : "Highlights only"}
+          </button>
+          <button
+            onClick={() => setShowAddSection(true)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-slate-700 hover:bg-slate-600 text-white rounded-full shadow-lg font-medium text-sm border border-slate-600"
+          >
+            <span>+</span>
+            <span>Add Section</span>
+          </button>
+          <button
             onClick={openNewCommentCard}
             className="flex items-center gap-2 px-4 py-2.5 bg-amber-600 hover:bg-amber-500 text-white rounded-full shadow-lg font-medium text-sm"
           >
@@ -705,6 +734,23 @@ export default function StudyPage() {
           </button>
           <FloatingAsk selectedText={selectedText} selectedSectionId={selectedSectionId} />
         </div>
+      )}
+
+      {/* Add Section panel */}
+      {showAddSection && (
+        <AddSectionPanel
+          markdownId={id}
+          rawContent={rawContent}
+          currentSectionTitle={sections.find((s) => s.id === activeId)?.title}
+          onClose={() => setShowAddSection(false)}
+          onAdded={(newContent) => {
+            setRawContent(newContent);
+            const parsed = extractSections(newContent);
+            setSections(parsed);
+            setHeadings(buildHeadingTree(parsed));
+            setShowAddSection(false);
+          }}
+        />
       )}
 
       {/* Quiz generation toast */}

@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { v4 as uuidv4 } from "uuid";
 import db from "@/lib/db";
 import { extractSections } from "@/lib/markdown";
 
@@ -26,4 +27,16 @@ export async function GET() {
   });
 
   return NextResponse.json(markdowns);
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const { name, content } = await req.json();
+    if (!name?.trim()) return NextResponse.json({ error: "Name is required" }, { status: 400 });
+    const id = uuidv4();
+    db.prepare("INSERT INTO markdowns (id, name, content) VALUES (?, ?, ?)").run(id, name.trim(), content ?? "");
+    return NextResponse.json({ id, name: name.trim() });
+  } catch {
+    return NextResponse.json({ error: "Failed to create file" }, { status: 500 });
+  }
 }
